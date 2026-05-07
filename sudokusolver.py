@@ -319,6 +319,7 @@ while i < 9:
     j = 0
     i += 1
 
+print("Solved Sudoku: ")
 for i in range(9):
     if i in [0, 3, 6]:
         print("-------------------------------")
