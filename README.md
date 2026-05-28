@@ -14,6 +14,14 @@ The program can read a Sudoku board from an image, recognize the digits on the b
 - Prints the solved Sudoku board
 - Measures and displays the solving time
 
+## How to turn it on
+
+- download dependencies by using this chain of commands in bash
+- python -m venv .venv
+- source .venv/Scripts/activate
+- pip install -r requirements.txt
+- python sudokusolver.py
+
 ## How It Works
 
 The program has two main parts:

@@ -1,12 +1,27 @@
 import time
+import tkinter as tk
 
 import cv2
 import numpy as np
 import os
 from PIL import Image, ImageDraw, ImageFont
 
+# ============================================================
+# KONFIGURACJA
+# ============================================================
+
 #size of the final ss of a cell
 TEMPLATE_SIZE = 40
+CELL_SIZE = 60
+BOARD_SIZE = CELL_SIZE * 9
+ANIMATION_DELAY_MS = 40
+MIN_ANIMATION_DELAY_MS = 1
+MAX_ANIMATION_DELAY_MS = 300
+
+
+# ============================================================
+# WYKRYWANIE OBRAZU I ROZPOZNAWANIE CYFR
+# ============================================================
 
 #taking the numbers picture and creating a 40x40 template
 #raw number -> snipping -> scaling -> centering -> 40x40
@@ -210,6 +225,10 @@ def read_sudoku_from_image(image_path):
     return array, line
 
 
+# ============================================================
+# FUNKCJE POMOCNICZE DO WYPISYWANIA I KOPIOWANIA PLANSZY
+# ============================================================
+
 def print_sudoku(array):
     for row in range(9):
         if row in [0, 3, 6]:
@@ -231,8 +250,274 @@ def print_sudoku(array):
     print("-------------------------")
 
 
-if __name__ == "__main__":
-    image_path = "sudoku.png"
+def copy_board(board):
+    return [column[:] for column in board]
+
+
+# ============================================================
+# ALGORYTM BACKTRACKING
+# ============================================================
+
+def find_empty_cell(board):
+    for row in range(9):
+        for col in range(9):
+            if board[col][row] == 0:
+                return row, col
+
+    return None
+
+
+def can_place(board, row, col, value):
+    for index in range(9):
+        if board[index][row] == value:
+            return False
+
+        if board[col][index] == value:
+            return False
+
+    box_row = (row // 3) * 3
+    box_col = (col // 3) * 3
+
+    for current_row in range(box_row, box_row + 3):
+        for current_col in range(box_col, box_col + 3):
+            if board[current_col][current_row] == value:
+                return False
+
+    return True
+
+
+def solve_sudoku_steps(board):
+    empty_cell = find_empty_cell(board)
+
+    if empty_cell is None:
+        return True
+
+    row, col = empty_cell
+
+    for value in range(1, 10):
+        if can_place(board, row, col, value):
+            board[col][row] = value
+            yield "place", row, col, value
+
+            solved = yield from solve_sudoku_steps(board)
+
+            if solved:
+                return True
+
+            board[col][row] = 0
+            yield "remove", row, col, 0
+
+    return False
+
+
+def solve_sudoku(board):
+    for _ in solve_sudoku_steps(board):
+        pass
+
+    return board
+
+
+def print_solved_sudoku(array):
+    print("Solved Sudoku: ")
+
+    for row in range(9):
+        if row in [0, 3, 6]:
+            print("-------------------------------")
+
+        for col in range(9):
+            if col % 3 == 0:
+                print("| ", end="")
+
+            if array[col][row] == 0:
+                print(" , ", end="")
+            elif col not in [8, 5, 2]:
+                print(f"{array[col][row]}, ", end="")
+            else:
+                print(f"{array[col][row]} ", end="")
+
+            if col == 8:
+                print("|")
+
+    print("-------------------------------")
+
+
+# ============================================================
+# WYSWIETLANIE OKNA APLIKACJI I ANIMACJA ROZWIAZYWANIA
+# ============================================================
+
+class SudokuVisualizer:
+    def __init__(self, board):
+        self.board = copy_board(board)
+        self.original = copy_board(board)
+        self.steps = solve_sudoku_steps(self.board)
+        self.step_count = 0
+        self.start_time = time.time()
+
+        self.root = tk.Tk()
+        self.root.title("Sudoku backtracking visualizer")
+        self.root.resizable(False, False)
+
+        self.canvas = tk.Canvas(
+            self.root,
+            width=BOARD_SIZE,
+            height=BOARD_SIZE,
+            bg="#f8fafc",
+            highlightthickness=0
+        )
+        self.canvas.pack(padx=16, pady=(16, 8))
+
+        self.status = tk.StringVar(value="Starting backtracking...")
+        tk.Label(
+            self.root,
+            textvariable=self.status,
+            font=("Segoe UI", 11),
+            anchor="w"
+        ).pack(fill="x", padx=16, pady=(0, 16))
+
+        controls = tk.Frame(self.root)
+        controls.pack(fill="x", padx=16, pady=(0, 16))
+
+        tk.Label(
+            controls,
+            text="Speed",
+            font=("Segoe UI", 10)
+        ).pack(side="left")
+
+        self.speed = tk.IntVar(value=80)
+        tk.Scale(
+            controls,
+            from_=1,
+            to=100,
+            orient="horizontal",
+            variable=self.speed,
+            showvalue=True,
+            length=260
+        ).pack(side="left", fill="x", expand=True, padx=(12, 0))
+
+        self.cell_backgrounds = {}
+        self.cell_texts = {}
+        self.draw_board()
+        self.root.after(500, self.animate)
+
+    def draw_board(self):
+        for row in range(9):
+            for col in range(9):
+                x1 = col * CELL_SIZE
+                y1 = row * CELL_SIZE
+                x2 = x1 + CELL_SIZE
+                y2 = y1 + CELL_SIZE
+
+                fill = "#e2e8f0" if self.original[col][row] != 0 else "#ffffff"
+                rect = self.canvas.create_rectangle(
+                    x1,
+                    y1,
+                    x2,
+                    y2,
+                    fill=fill,
+                    outline="#cbd5e1"
+                )
+                self.cell_backgrounds[(row, col)] = rect
+
+                value = self.original[col][row]
+                text = self.canvas.create_text(
+                    x1 + CELL_SIZE / 2,
+                    y1 + CELL_SIZE / 2,
+                    text="" if value == 0 else str(value),
+                    fill="#0f172a" if value != 0 else "#2563eb",
+                    font=("Segoe UI", 22, "bold" if value != 0 else "normal")
+                )
+                self.cell_texts[(row, col)] = text
+
+        for index in range(10):
+            width = 3 if index % 3 == 0 else 1
+            color = "#0f172a" if index % 3 == 0 else "#cbd5e1"
+            offset = index * CELL_SIZE
+
+            self.canvas.create_line(
+                offset,
+                0,
+                offset,
+                BOARD_SIZE,
+                fill=color,
+                width=width
+            )
+            self.canvas.create_line(
+                0,
+                offset,
+                BOARD_SIZE,
+                offset,
+                fill=color,
+                width=width
+            )
+
+    def set_cell(self, row, col, value, action):
+        if self.original[col][row] != 0:
+            return
+
+        if action == "place":
+            background = "#dcfce7"
+            color = "#166534"
+            text = str(value)
+        else:
+            background = "#fee2e2"
+            color = "#991b1b"
+            text = ""
+
+        self.canvas.itemconfigure(
+            self.cell_backgrounds[(row, col)],
+            fill=background
+        )
+        self.canvas.itemconfigure(
+            self.cell_texts[(row, col)],
+            text=text,
+            fill=color
+        )
+
+        self.root.after(
+            self.get_delay(),
+            lambda: self.canvas.itemconfigure(
+                self.cell_backgrounds[(row, col)],
+                fill="#ffffff"
+            )
+        )
+
+    def get_delay(self):
+        speed = self.speed.get()
+        delay_range = MAX_ANIMATION_DELAY_MS - MIN_ANIMATION_DELAY_MS
+
+        return MAX_ANIMATION_DELAY_MS - int((speed - 1) * delay_range / 99)
+
+    def animate(self):
+        try:
+            action, row, col, value = next(self.steps)
+        except StopIteration as stop:
+            elapsed_ms = int((time.time() - self.start_time) * 1000)
+            result = "Solved" if stop.value else "No solution"
+            self.status.set(f"{result}. Steps={self.step_count}, elapsed={elapsed_ms} ms")
+
+            if stop.value:
+                print_solved_sudoku(self.board)
+
+            return
+
+        self.step_count += 1
+        self.set_cell(row, col, value, action)
+        self.status.set(
+            f"Step {self.step_count}: {action} "
+            f"{value if value else ''} at row {row + 1}, column {col + 1}"
+        )
+        self.root.after(self.get_delay(), self.animate)
+
+    def run(self):
+        self.root.mainloop()
+
+
+# ============================================================
+# URUCHOMIENIE PROGRAMU
+# ============================================================
+
+def main():
+    image_path = "sudoku2.png"
 
     array, line = read_sudoku_from_image(image_path)
 
@@ -242,102 +527,9 @@ if __name__ == "__main__":
     print("Recognised field")
     print_sudoku(array)
 
+    visualizer = SudokuVisualizer(array)
+    visualizer.run()
 
-array = [[0 for _ in range(9)] for _ in range(9)]
-for i in range(9):
-    for j in range(9):
-        array[j][i] = int(line[i * 9 + j])
 
-start = time.time()
-
-line = ["" for _ in range(9)]
-column = ["" for _ in range(9)]
-square = [["" for _ in range(3)] for _ in range(3)]
-position = [0 for _ in range(81)]
-
-# get the numbers missing from each line
-for j in range(9):
-    for i in range(9):
-        if array[i][j] != 0:
-            line[j] += str(array[i][j])
-
-# get numbers for column
-for j in range(9):
-    for k in range(9):
-        if array[j][k] != 0:
-            column[j] += str(array[j][k])
-
-# get numbers for square
-for i in range(9):
-    for j in range(9):
-        if array[j][i] != 0:
-            square[i // 3][j // 3] += str(array[j][i])
-
-l = 0
-i = 0
-j = 0
-combinations = 0
-flag = True
-
-while i < 9:
-    while j < 9:
-        if array[j][i] == 0:
-            if position[l] == 0:
-                position[l] = 100
-            if position[l] // 100 == 10:
-                flag = False
-                position[l] -= 100
-            for k in range(position[l] // 100, 10):
-                if position[l] != 0:
-                    position[l] = 0
-                if (str(k) not in line[i] and
-                    str(k) not in column[j] and
-                    flag and
-                    str(k) not in square[i // 3][j // 3]):
-
-                    position[l] = (k + 1) * 100 + i * 10 + j
-                    l += 1
-                    array[j][i] = k
-                    combinations += 1
-                    square[i // 3][j // 3] += str(k)
-                    line[i] += str(k)
-                    column[j] += str(k)
-                    break
-
-                flag = True
-                if k == 9 and array[j][i] == 0:
-                    i = (position[l - 1] % 100 - position[l - 1] % 10) // 10
-                    j = (position[l - 1] % 10) - 1
-                    array[j + 1][i] = 0
-                    square[i // 3][(j + 1) // 3] = square[i // 3][(j + 1) // 3][:-1]
-                    line[i] = line[i][:-1]
-                    column[j + 1] = column[j + 1][:-1]
-                    l -= 1
-                    break
-            flag = True
-        j += 1
-    j = 0
-    i += 1
-
-print("Solved Sudoku: ")
-for i in range(9):
-    if i in [0, 3, 6]:
-        print("-------------------------------")
-    for j in range(9):
-        if j % 3 == 0:
-            print("| ", end="")
-        if array[j][i] == 0:
-            print(" , ", end="")
-        else:
-            if j not in [8, 5, 2]:
-                print(f"{array[j][i]}, ", end="")
-            else:
-                print(f"{array[j][i]} ", end="")
-        if j == 8:
-            print("|")
-print("-------------------------------")
-
-elapsed_ms = int((time.time() - start) * 1000)
-print(f"Elapsed(ms)={elapsed_ms}")
-print(f"Elapsed(s)={elapsed_ms / 1000}")
-print(f"Elapsed(min)={elapsed_ms / 60000}")
+if __name__ == "__main__":
+    main()
