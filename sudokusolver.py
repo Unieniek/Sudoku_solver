@@ -500,7 +500,8 @@ class SudokuVisualizer:
 
             return
 
-        self.step_count += 1
+        if action == "place":
+            self.step_count += 1
         self.set_cell(row, col, value, action)
         self.status.set(
             f"Step {self.step_count}: {action} "

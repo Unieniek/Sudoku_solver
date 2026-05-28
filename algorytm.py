@@ -49,7 +49,7 @@ def solve_sudoku(board):
 
             if solve_sudoku(board):
                 return True
-
+            #core backtrackingu czyli zerowanie pola i cofanie się do poprzedniego kroku
             board[row][col] = 0
 
     return False
